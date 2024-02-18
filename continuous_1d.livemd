@@ -1,0 +1,83 @@
+# CEM Example: Continuous 1D
+
+```elixir
+Mix.install(
+  [
+    {:cem, path: "/Users/epfahl/elixir/cem"}
+  ],
+  force: true
+)
+```
+
+## Problem module
+
+```elixir
+defmodule OneD do
+  defmacro __using__(opts) do
+    quote bind_quoted: [opts: opts] do
+      use CEM.Problem
+
+      @opts Map.new(opts)
+
+      @impl true
+      def init_params(_opts), do: %{mean: 0, std: 100}
+
+      @impl true
+      def draw_instance(%{mean: mean, std: std}), do: mean + std * :rand.normal()
+
+      @impl true
+      def update_params(sample) do
+        n = length(sample)
+        mean = sample_mean(sample, n)
+        std = sample_std(sample, n, mean)
+        %{mean: mean, std: std}
+      end
+
+      @impl true
+      def smooth_params(params, params_prev, f_smooth) do
+        %{
+          mean: smooth(params.mean, params_prev.mean, f_smooth),
+          std: smooth(params.std, params_prev.std, f_smooth)
+        }
+      end
+
+      @impl true
+      def terminate?([entry | _], _opts), do: entry.params.std < @opts.std_terminal
+
+      @impl true
+      def params_to_instance(%{mean: mean}), do: mean
+
+      defp sample_mean(sample, n), do: Enum.sum(sample) / n
+
+      defp sample_std(sample, n, mean) do
+        sample
+        |> Enum.map(&((&1 - mean) * (&1 - mean)))
+        |> Enum.sum()
+        |> Kernel./(n)
+        |> :math.sqrt()
+      end
+
+      defp smooth(x, x_prev, f), do: f * x + (1 - f) * x_prev
+    end
+  end
+end
+```
+
+```elixir
+defmodule DoubleGauss do
+  use OneD, std_terminal: 0.001
+
+  def score_instance(x) do
+    # :math.exp(-(x**2))
+    s = :math.exp(-(x - 4) * (x - 4)) + 0.8 * :math.exp(-(x + 2) * (x + 2))
+    # :math.log(1 + s)
+  end
+end
+```
+
+```elixir
+CEM.search(DoubleGauss)
+```
+
+How can I abstract a problem module to use different objective/score functions? Say I want to reuse everything in the module but the score function? Some kind of delegation pattern?
+Maybe a customization to the macro that injects defaults for specific classes of problems?
