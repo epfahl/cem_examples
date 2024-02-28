@@ -65,10 +65,10 @@ defmodule OneD do
     %{mean: mean, std: std}
   end
 
-  def smooth(params, params_prev, f_smooth) do
+  def smooth(params, params_prev, f_interp) do
     %{
-      mean: Helpers.interpolate(params.mean, params_prev.mean, f_smooth),
-      std: Helpers.interpolate(params.std, params_prev.std, f_smooth)
+      mean: Helpers.interpolate(params.mean, params_prev.mean, f_interp),
+      std: Helpers.interpolate(params.std, params_prev.std, f_interp)
     }
   end
 
@@ -152,7 +152,7 @@ CEM.search(prob)
 The search should converge to a `solution` that is close to the correct maximum. The search can be tuned by changing the number of samples, the elite fraction, or the amount of smoothing:
 
 ```elixir
-CEM.search(prob, n_sample: 1000, f_elite: 0.05, f_smooth: 0.8)
+CEM.search(prob, n_sample: 1000, f_elite: 0.05, f_interp: 0.2)
 ```
 
 ## Updating the problem
