@@ -59,9 +59,7 @@ defmodule OneD do
   def draw(%{mean: mean, std: std}), do: Random.normal(mean, std)
 
   def update(sample) do
-    n = length(sample)
-    mean = sample_mean(sample, n)
-    std = sample_std(sample, n, mean)
+    {mean, std} = sample_mean_and_std(sample)
     %{mean: mean, std: std}
   end
 
@@ -75,6 +73,13 @@ defmodule OneD do
   def terminate?([entry | _] = _log, _opts), do: entry.params.std < 0.001
 
   def params_to_instance(%{mean: mean}), do: mean
+
+  defp sample_mean_and_std(sample) do
+    n = length(sample)
+    mean = sample_mean(sample, n)
+    std = sample_std(sample, n, mean)
+    {mean, std}
+  end
 
   defp sample_mean(sample, n), do: Enum.sum(sample) / n
 
