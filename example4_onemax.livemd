@@ -1,4 +1,4 @@
-# Example 4: Binary max-sum
+# Example 4: OneMax
 
 ```elixir
 Mix.install(
@@ -9,12 +9,24 @@ Mix.install(
 )
 ```
 
-## The problem
+## Problem
 
-`params_to_instance` should probably take `opts`? Anything else need `opts`?
+The OneMax problem is to find a bit string (a list of 0s and 1s) of fixed length $n$ such that the sum of the bits is maximized. For example, if $n = 5$, the bit string `[0, 1, 1, 0, 1]` has a sum of 3. It's clear that the sum is maximized when all bits are 1, giving a sum of $n$.
+
+This problem and its solution are easy to state. But note that an exhaustive search involving $n$ bits must evaluate $2^n$ candidate solutions, an extremely large number when $n$ is hundreds or thousands. Because of the large search space and the ease of verifying solutions, OneMax is a commonly-used test problem for combinatorial optimization algorithms.
+
+## Setup
+
+The module below establishes the functions that `CEM` needs to solve the OneMax problem. Some notable pieces include:
+
+* The probability distribution is a list of probabilities for independently generating the bits.
+* For a given probability $p$, a bit is drawn from the Bernoulli distribution, sometimes called the coin-flip distribution.
+* The `score` function is a sum of bits and won't need to be changed.
+* The `update` function takes a list of bit strings and computes an average for each list position.
+* `other_opts`, user-defined options passed to `CEM.search/2`, holds the length `n_bits` of the bit string.
 
 ```elixir
-defmodule MaxSum do
+defmodule OneMax do
   alias CEM.Helpers
   alias CEM.Random
 
@@ -54,41 +66,62 @@ defmodule MaxSum do
 end
 ```
 
-We can test these independently of `CEM`.
+The `OneMax` module has ordinary functions that can be tested independently of `CEM`. For example:
 
 ```elixir
 %{other_opts: %{n_bits: 10}}
-|> MaxSum.init()
-|> MaxSum.draw()
+|> OneMax.init()
+|> IO.inspect(label: "initial PDF")
+|> OneMax.draw()
+|> IO.inspect(label: "instance")
+|> OneMax.score()
 ```
+
+## Search
+
+Define the problem struct using the function in `OneMax`:
 
 ```elixir
 prob =
   CEM.new(
-    init: &MaxSum.init/1,
-    draw: &MaxSum.draw/1,
-    score: &MaxSum.score/1,
-    update: &MaxSum.update/1,
-    smooth: &MaxSum.smooth/3,
-    terminate?: &MaxSum.terminate?/2,
-    params_to_instance: &MaxSum.params_to_instance/1
+    init: &OneMax.init/1,
+    draw: &OneMax.draw/1,
+    score: &OneMax.score/1,
+    update: &OneMax.update/1,
+    smooth: &OneMax.smooth/3,
+    terminate?: &OneMax.terminate?/2,
+    params_to_instance: &OneMax.params_to_instance/1
   )
 ```
+
+Run the search with the default values for the standard `CEM` options and a modest value of `n_bits` (less than 20 or 30, say) provided in `other_opts`:
+
+```elixir
+CEM.search(prob, other_opts: [n_bits: 30])
+```
+
+It's likely that the search will find the correct solution (all 1s) and maximum sum (`n_bits`) in 10 or fewer steps.
+
+## Tuning
+
+Try running the search with `n_buts = 1000` and default standard options:
 
 ```elixir
 CEM.search(prob, other_opts: [n_bits: 1000])
 ```
 
-You may see that the final score after `n_step_max` iterations is less than `n_bits`, the maximum score (if not, try running again). This can happen when when one or more probabilities gets prematurely set to 0 and simple smoothing is unable to change the value.
+As `n_bits` is increased to 100 and beyond, you may see the search run for the full `n_step_max` number of steps (defaults to 100) and arrive at a suboptimal solution. This can happen when when one or more probabilities gets prematurely set to 0 and simple smoothing is unable to change the value in later steps.
 
-Try the run again with different values of `n_sample`, `f_smooth`, and `n_step_max`. For example, just increasing the sample size in one iteration may be sufficient to prevent premature convergence:
+<!-- livebook:{"break_markdown":true} -->
+
+Try the run again with different values of `n_sample` and `f_interp`. Just increasing the sample size in one step may be sufficient to prevent premature convergence:
 
 ```elixir
-CEM.search(prob, n_sample: 1000, other_opts: [n_bits: 1000])
+CEM.search(prob, n_sample: 1000, f_interp: 0.1, other_opts: [n_bits: 1000])
 ```
 
 This should show a higher score, and possibly a perfect score.
 
 <!-- livebook:{"break_markdown":true} -->
 
-This example illustrates the need to quickly explore the space of hyperparameters for each problem.
+This example illustrates the need to quickly explore and tune the hyperparameters for each problem.
