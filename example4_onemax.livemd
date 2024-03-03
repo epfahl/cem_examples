@@ -11,7 +11,7 @@ Mix.install(
 
 ## Problem
 
-The OneMax problem is to find a bit string (a list of 0s and 1s) of fixed length $n$ such that the sum of the bits is maximized. For example, if $n = 5$, the bit string `[0, 1, 1, 0, 1]` has a sum of 3. It's clear that the sum is maximized when all bits are 1, giving a sum of $n$.
+The OneMax problem seeks to find a bit string (a list of 0s and 1s) of fixed length $n$ such that the sum of the bits is maximized. For example, if $n = 5$, the bit string `[0, 1, 1, 0, 1]` has a sum of 3. It's clear that the sum is maximized when all bits are 1, giving a sum of $n$.
 
 This problem and its solution are easy to state. But note that an exhaustive search involving $n$ bits must evaluate $2^n$ candidate solutions, an extremely large number when $n$ is hundreds or thousands. Because of the large search space and the ease of verifying solutions, OneMax is a commonly-used test problem for combinatorial optimization algorithms.
 
