@@ -1,4 +1,4 @@
-# Example 1: Intro and 1D optimization
+# Example: Intro and 1D continuous optimization
 
 ```elixir
 Mix.install(
@@ -181,3 +181,37 @@ prob
 ```
 
 `CEM` offers lots of flexibility in how problems are defined and altered during the course of exploration. This is especially convenient in a Livebook.
+
+## Moar
+
+```elixir
+sines = fn x ->
+  res =
+    1..4
+    |> Enum.map(fn i ->
+      :math.cos(i * i * x - i)
+    end)
+    |> Enum.sum()
+
+  res + :math.cos(0.25 * x)
+end
+```
+
+```elixir
+n = 500
+x = for i <- 1..n, do: -3 + 6 * i / n
+y = Enum.map(x, sines)
+data = %{x: x, y: y}
+```
+
+<!-- livebook:{"attrs":{"chart_title":null,"height":200,"layers":[{"active":true,"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":null,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","geodata_color":"blue","latitude_field":null,"longitude_field":null,"x_field":"x","x_field_aggregate":null,"x_field_bin":null,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"y","y_field_aggregate":null,"y_field_bin":null,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":700},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 700, height: 200)
+|> VegaLite.data_from_values(data, only: ["x", "y"])
+|> VegaLite.mark(:line)
+|> VegaLite.encode_field(:x, "x", type: :quantitative)
+|> VegaLite.encode_field(:y, "y", type: :quantitative)
+```
+
+How do I see that the transition matrix that generates permutations is in the exponential family. Effectively Bernoulli, but with a twist.

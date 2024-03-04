@@ -1,4 +1,4 @@
-# Example 4: OneMax
+# Example: OneMax
 
 ```elixir
 Mix.install(
@@ -20,9 +20,9 @@ This problem and its solution are easy to state. But note that an exhaustive sea
 The module below establishes the functions that `CEM` needs to solve the OneMax problem. Some notable pieces include:
 
 * The probability distribution is a list of probabilities for independently generating the bits.
-* For a given probability $p$, a bit is drawn from the Bernoulli distribution, sometimes called the coin-flip distribution.
-* The `score` function is a sum of bits and won't need to be changed.
-* The `update` function takes a list of bit strings and computes an average for each list position.
+* For a given probability $p$, a bit (0 or 1) is drawn from the Bernoulli distribution.
+* The `score` function is a sum of bits. This won't need to be changed.
+* The `update` function takes a list of bit strings and computes an average for each list position. An average of 0s and 1s will always be between 0 and 1, just what we need for a probability.
 * `other_opts`, user-defined options passed to `CEM.search/2`, holds the length `n_bits` of the bit string.
 
 ```elixir
