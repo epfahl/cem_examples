@@ -1,0 +1,377 @@
+# Example: The TSP
+
+```elixir
+Mix.install(
+  [
+    {:cem, git: "https://github.com/epfahl/cem.git"},
+    {:nx, "~> 0.7.1"},
+    {:exla, "~> 0.7.1"},
+    {:kino, "~> 0.12.3"},
+    {:kino_vega_lite, "~> 0.1.11"},
+    {:tim, "~> 0.2.1"}
+  ],
+  force: true
+)
+
+Nx.global_default_backend(EXLA.Backend)
+
+image = fn file ->
+  Path.join([__DIR__, "images", file])
+  |> File.read!()
+  |> Kino.Image.new("image/png")
+end
+```
+
+## Problem description
+
+The [traveling salseman problem](https://en.wikipedia.org/wiki/Travelling_salesman_problem) (TSP) is stated as follows: Given $n$ cities and $n(n - 1)/2$ distances between any pair of cities, what is a tour of minimum total distance that starts at a given city, passes through all cities exactly once, and returns to the starting point? If the cities are indexed by integers $i = 0, \ldots, n - 1$, and city 0 is chosen as the starting point, then a single tour can be represented as a list of indices of length $n + 1$, where the first and last elements are 0, and the remaining elements are one of $(n - 1)!$ permutations of $1, \ldots, n - 1$. If $n = 5$. A single tour might be $[0, 3, 2, 4, 1, 0]$, indicating movement from 0 to 3, then 3 to 2, and so on.
+
+While the TSP is often presented in terms of cities and distances, the problem is more generally cast as an optimization problem on a graph of nodes and the edges between nodes, where each edge has a cost. The problem is to find a closed path through all nodes (a [Hamiltonian path](https://en.wikipedia.org/wiki/Hamiltonian_path)), that minimizes the total cost accumulated along the path.
+
+In general, there is no guarantee that a Hamiltonian path exists. To circumvent this issue, it is assumed here that the graph is _complete_, meaning there is an edge between every pair of nodes. Missing edges can be indicated with a large or infinite cost.
+
+The TSP is an excellent test case for a combinatorial optimization algorithm because of the large search space and the complexity of the objective function. Because $n!$ increases very quickly with $n$, the search space is huge even for modest values of $n$. And the cost of a tour will typically have many local minima as the order of the cities is permuted.
+
+## Notes on CEM implementation
+
+The TSP is effectively a search over permuations. Unlike other stochastic optimization algorithms (e.g., genetic algorithms and simulated annealing), the cross-entropy method doesn't manipulate permuations directly. Instead, random permutations are generated from a matrix $\{p_{ij}\}$ of transition probabilities. Here's an example of a transition matrix when $n = 3$:
+
+$$
+\begin{bmatrix}
+  0 & 0.7 & 0.3\\
+  0.1 & 0 & 0.9\\
+  0.5 & 0.5 & 0\\
+\end{bmatrix}
+$$
+
+The value $p_{ij}$ in row $i$ and column $j$ is the probability of moving from node $i$ to node $j$. The zeros along the diagonal ($p_{ii} = 0$) indicate that it's not possible to
+leave from node $i$ and immediately return to node $i$ in one step. Also, because a transition from node $i$ must end up _somewhere_, the probabilities along each row sum to 1:
+
+$$
+\begin{equation*}
+  \sum_{j = 0}^{n - 1} p_{ij} = 1~.
+\end{equation*}
+$$
+
+The matrix of transition probabilities is the parameterized probability distribution used by `CEM` to draw random solution instances.
+
+<!-- livebook:{"break_markdown":true} -->
+
+To generate a path using the transition probabilities, pick a starting node (a row) and then choose the next node randomly according to the probabilities in the selected row. Repeat this process until the path reaches the desired length. While this procedure generates paths through the graph, most of these paths will not be valid TSP tours. To ensure that each node other than the first is visited exactly once, the choice of the next node must be restricted to those nodes that have not yet been visited during path generation. For more implementation details, see the section [Drawing a random tour](http://localhost:49895/sessions/7f3yzand4solxh4iwh5ij3hhlhx3th3oorfuw45ooh6wzai5#drawing-a-random-tour)
+
+A tour can be represented as a list of indices or as a permutation matrix, a square matrix with exactly one 1 in each row and column, and 0s elsewhere. The tour $[0, 2, 1, 0]$ has the corresponding permutation matrix
+
+$$
+\begin{bmatrix}
+  0 & 0 & 1\\
+  1 & 0 & 0\\
+  0 & 1 & 0\\
+\end{bmatrix}
+$$
+
+Notice that this is also a matrix of transition probabilities with only one possible transition per node. The permutation representation is somewhat more convenient for scoring individual tours when working with a matrix of edge costs.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Let $c_{ij}$ be the cost (e.g., distance or time) of moving from node $i$ to node $j$. Given a tour represented as $[x_0, x_1, \ldots, x_{n - 1}, x_0]$, where $x_0 = 0$ and $x_1\,\ldots, x_{n - 1}$ are any indices that make one permutation of $1,\ldots,n-1$, then then the total cost of a tour is
+
+$$
+\begin{equation*}
+  S(x_0, \ldots, x_{n-1}, x_0) = c_{x_{n- 1}, 0} + \sum_{i = 0}^{n - 2} c_{x_i, x_{i + 1}}~,
+\end{equation*}
+$$
+
+where the first term on the right is the cost of the return to the starting point.
+
+When the tour is represented as a permutation matrix, it can be applied to the cost matrix as a mask, so that the only non-zero values of $c_{ij}$ will be those for which there is a transition in the tour. The total cost of the tour is then the sum of all the elements in the resulting matrix. For example, given the tour
+
+$$
+\begin{bmatrix}
+  0 & 0 & 1\\
+  1 & 0 & 0\\
+  0 & 1 & 0\\
+\end{bmatrix}
+$$
+
+and cost matrix
+
+$$
+\begin{bmatrix}
+  1 & 2 & 3\\
+  4 & 5 & 6\\
+  7 & 8 & 9\\
+\end{bmatrix}
+$$
+
+the element-by-element product (mask application) is
+
+$$
+\begin{bmatrix}
+  0 & 0 & 3\\
+  4 & 0 & 0\\
+  0 & 8 & 0\\
+\end{bmatrix}
+$$
+
+and the total cost is 3 + 4 + 8 = 15. See the section [Scoring a tour](http://localhost:49895/sessions/7f3yzand4solxh4iwh5ij3hhlhx3th3oorfuw45ooh6wzai5#scoring-a-tour) for implementation details.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Each of the functions needed for `CEM` will be discussed and implemented separately in what follows. Where it makes sense, `Nx` will be used to compactly express certain matrix operations. There are performance-critical areas where `Nx` can significantly slow down `CEM.search/2`. These issues will be discussed below.
+
+_Note: It's quite possible that `Nx` could leveraged in more sophisticated ways that would solve the performance issues._
+
+## A simple cost matrix
+
+When designing an example optimization problem, it is advantageous to know one optimal solution in advance (there may be more than one). This is especially true of the TSP, since the number of tours in a complete graph may be huge, making exhaustive search impractical. In this regard, a particularly simple case is a _ring_ topology, where the optimal tour walks the node indices in sequence: $[0, 1, 2, \ldots, n - 1, 0]$. This can be arranged with a suitably defined cost matrix, where $c_{ij} = 1$ for the transitions in the sequential tour, while $c_{ij}$ is some large positive number for all other edges. The total cost for the optimal ring tour is $n$.
+
+As described, the ring configuration actually has exactly two optimal solutions that correspond to the two ways of traversing the ring, either $[0, 1, 2, \ldots, n - 1, 0]$ or $[0, n - 1, n, \ldots, 1, 0]$. Rather than introduce a bias in the cost matrix that prefers one tour over the other, it will be interesting to see if `CEM` can recover both solutions. Feel free to experiment with changes to the cost matrix.
+
+_Note: Using an infinite cost for all off-tour edges would be problematic, since any number added to infinity is infinity. This would prevent the optimizer from gradually relaxing to a solution._
+
+<!-- livebook:{"break_markdown":true} -->
+
+Below is a function that uses `Nx` to generate a cost matrix for the ring topology.
+
+```elixir
+defmodule TSP.Cost do
+  def ring(n, fill_value \\ 100) do
+    Nx.tri(n, n, k: 1)
+    |> Nx.subtract(Nx.tri(n, n))
+    |> Nx.indexed_put(Nx.tensor([n - 1, 0]), 1)
+    |> Nx.select(1, fill_value)
+  end
+end
+```
+
+The off-ring costs are adjustable with the `fill_value` argument. When $n = $ and `fill_value = 100`, the cost matrix is
+
+```elixir
+TSP.Cost.ring(5)
+```
+
+## Initializing the transition matrix
+
+The initial transition probability matrix is assumed to have constant off-diagonal values of $1 / (n - 1)$ and 0s along the diagonal. This means that there's is an equal probability to transition between any pair of nodes, which is the least biased initial state. Here's the code:
+
+```elixir
+defmodule TSP.Init do
+  def init(%{other_opts: %{n_nodes: n}}) do
+    Nx.broadcast(1 / (n - 1), {n, n})
+    |> Nx.put_diagonal(Nx.broadcast(0, {n}))
+  end
+end
+```
+
+The number of nodes will be passed to `CEM.search/2` through `other_opts: [n_nodes: n]` when there are $n$ nodes. Recall that all of the `CEM` functions receive `opts` as a map.
+
+Generate the initial transition matrix for $n = 5$ and make sure the rows sum to 1:
+
+```elixir
+TSP.Init.init(%{other_opts: %{n_nodes: 5}})
+|> IO.inspect(label: "initial transition matrix")
+|> Nx.sum(axes: [1])
+```
+
+## Drawing a random tour
+
+Generating a random tour from the transition probability matrix is most involved and the most performance-critical piece of the `CEM` problem implementation. Experiments using `Nx` have shown that repeated accesses, updates, and especially random choices involving `Nx` tensors are quite slow for random tour generation. Equivalent operations in pure Elixir can be more than 1000 times faster for test cases considered. For this reason, a custom matrix data structure (`CEM.MapMatrix`) based on Elixir maps was created to assist with random tour generation.
+
+In the code below, a tour is first generated as a list of indices. That list is then converted to a permutation matrix and finally returned as an `Nx.tensor`.
+
+_Note: It's quite possible that a different formulation of the `CEM` search algorithm that deeply integrates `Nx` could have excellent performance. But this would also mean sacrificing the simplicity and flexibility of the pure Elixir implementation. Another option would be to implement the performance-critical pieces, including perhaps the CEM sampling loop, as a NIF in a low-level langauge like Rust or Zig._
+
+```elixir
+defmodule TSP.Draw do
+  alias CEM.MapMatrix
+
+  def draw(trans) do
+    {n, n} = Nx.shape(trans)
+    unvisited = MapSet.new(1..(n - 1))
+
+    trans
+    |> Nx.to_list()
+    |> MapMatrix.from_list()
+    |> draw(unvisited, 0, [0])
+    |> path_to_tour()
+  end
+
+  defp draw(trans_matrix, unvisited, from_node, path) do
+    if MapSet.size(unvisited) == 0 do
+      Enum.reverse([0 | path])
+    else
+      to_node = get_next_node(trans_matrix, unvisited, from_node)
+      draw(trans_matrix, MapSet.delete(unvisited, to_node), to_node, [to_node | path])
+    end
+  end
+
+  defp get_next_node(trans_matrix, unvisited, from_node) do
+    idx = Enum.to_list(unvisited)
+
+    trans_matrix
+    |> MapMatrix.gather(Enum.map(idx, &{from_node, &1}))
+    |> Enum.zip_with(idx, fn p, i -> {i, p} end)
+    |> CEM.Random.choice()
+  end
+
+  def path_to_tour(path) do
+    n = length(path) - 1
+    zeros = MapMatrix.zero({n, n})
+
+    path
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.reduce(zeros, fn [i, j], tour ->
+      MapMatrix.put(tour, {i, j}, 1)
+    end)
+    |> MapMatrix.to_list()
+    |> Nx.tensor()
+  end
+end
+```
+
+```elixir
+%{other_opts: %{n_nodes: 5}}
+|> TSP.Init.init()
+|> TSP.Draw.draw()
+```
+
+## Scoring a tour
+
+As described above, the tour permutation matrix can be used to select values from the cost matrix, and the sum of the selected transition costs is the total cost of the tour. This has a simple implementation using `Nx`. Below is a function that returns a scoring function once a cost matrix is provided. This makes it easy to explore different cost matrices during experimentation.
+
+```elixir
+defmodule TSP.Score do
+  def scorer(cost) do
+    fn tour ->
+      tour
+      |> Nx.select(cost, 0)
+      |> Nx.sum()
+      |> Nx.to_number()
+    end
+  end
+end
+```
+
+```elixir
+n = 5
+
+score_fn =
+  TSP.Cost.ring(n)
+  |> IO.inspect(label: "cost matrix")
+  |> TSP.Score.scorer()
+
+%{other_opts: %{n_nodes: n}}
+|> TSP.Init.init()
+|> TSP.Draw.draw()
+|> IO.inspect(label: "tour matrix")
+|> score_fn.()
+```
+
+## Updating and smoothing transition probabilities
+
+Given a sample of tours, where each tour is represented as a permutation matrix, the updated transition probability matrix is obtained as an average over the sample.
+
+Smoothing helps to prevent the optimizer from premature convergence. This is especially important when there are many local minima.
+
+The udpate and smoothing steps are implemented below in the same module.
+
+```elixir
+defmodule TSP.Update do
+  def update([h | _] = tours) do
+    Enum.reduce(tours, Nx.fill(h, 0), fn tour, acc ->
+      Nx.add(acc, tour)
+    end)
+    |> Nx.divide(length(tours))
+  end
+
+  def smooth(trans, trans_prev, f_interp) do
+    Nx.multiply(1 - f_interp, trans)
+    |> Nx.add(Nx.multiply(f_interp, trans_prev))
+  end
+end
+```
+
+As an example, generate 10 random tours and compute the update:
+
+```elixir
+trans_prev =
+  %{other_opts: %{n_nodes: 5}}
+  |> TSP.Init.init()
+
+trans =
+  for _ <- 1..10 do
+    trans_prev
+    |> TSP.Draw.draw()
+  end
+  |> TSP.Update.update()
+```
+
+Now apply the smoothing operator:
+
+```elixir
+TSP.Update.smooth(trans, trans_prev, 0.1)
+```
+
+## Putting it all together
+
+Below is the definition for a relatively small problem--only 10 nodes.
+
+```elixir
+n_nodes = 10
+cost = TSP.Cost.ring(n_nodes, 100)
+
+prob =
+  CEM.new(
+    init: &TSP.Init.init/1,
+    draw: &TSP.Draw.draw/1,
+    score: TSP.Score.scorer(cost),
+    update: &TSP.Update.update/1,
+    smooth: &TSP.Update.smooth/3
+  )
+```
+
+Before executing the search, we should have some idea of an appropriate choice for the sample size used in a single CEM step. [The literature](https://people.smp.uq.edu.au/DirkKroese/ps/aortut.pdf) recommends that the sample size for a discrete optimization problem should scale as the number of degrees of freedom in the probability distribution. For the TSP, the number of parameters for $n$ nodes is $n^2$, the number of elements in the transition matrix. The sample size should be proportional to $n^2$. Here, for simplicity, `n_sample = n_nodes * n_nodes`. Experiment with other choices and see how the run time and result quality vary.
+
+```elixir
+n_sample =
+  (n_nodes * n_nodes)
+  |> IO.inspect(label: "number of sample per CEM step")
+
+%{params: params} =
+  CEM.search(
+    prob,
+    mode: :min,
+    n_sample: n_sample,
+    f_elite: 0.1,
+    n_step_max: 10,
+    other_opts: [n_nodes: n_nodes]
+  )
+```
+
+```elixir
+TSP.Draw.draw(params)
+```
+
+How well did `CEM` do?
+
+Now try a larger problem.
+
+```elixir
+n_nodes = 50
+cost = TSP.Cost.ring(n_nodes, 100)
+
+%{params: params} =
+  prob
+  |> CEM.replace(:score, TSP.Score.scorer(cost))
+  |> CEM.search(
+    mode: :min,
+    n_sample: n_nodes * n_nodes,
+    n_step_max: 30,
+    other_opts: [n_nodes: n_nodes]
+  )
+```
+
+```elixir
+TSP.Draw.draw(params)
+|> Nx.to_heatmap()
+```
